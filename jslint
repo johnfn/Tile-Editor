@@ -1,3 +1,0 @@
-#!/bin/bash
-
-rhino jslint.js editor.js
