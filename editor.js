@@ -5,7 +5,7 @@ var $ = $; /* make jslint shut up about jQuery.*/
 
 $(function () {
 	var /* Constants */	
-			REFRESH_RATE = 50,
+			REFRESH_RATE = 10,
 			/* Currently constants, but won't be later */
 			TILE_WIDTH = 20,
 			MAP_WIDTH = 20,
@@ -34,7 +34,7 @@ $(function () {
 		for (i = 0; i < size; i += 1) {
 			arr[i] = [];
 			for (j = 0; j < size; j += 1) {
-				arr[i][j] = fn();
+				arr[i][j] = fn(i, j);
 			}
 		}
 		return arr;
@@ -73,6 +73,12 @@ $(function () {
 		}
 
 		return obj;
+	}
+
+	/* is point POINT inside rect RECT? */
+	function point_inside_rect(point, rect) {
+		return (point.x >= rect.x && point.x <= rect.x + rect.width &&
+						point.y >= rect.y && point.y <= rect.y + rect.height);
 	}
 
 	/* Return elem for which fn(elem) is the highest value. It is assumed that f(x) >= 0 for all x */
@@ -119,7 +125,7 @@ $(function () {
 					new_object.y = parent_object.objs_on_right;
 
 					parent_object.objs_on_right += new_object.height + BORDER_WIDTH;
-				} else if (relative === "left") {
+				} else if (relative === "bottom") {
 					new_object.x = parent_object.objs_on_bottom;
 					new_object.y = parent_object.x + parent_object.width + BORDER_WIDTH;
 
@@ -136,14 +142,75 @@ $(function () {
 		};
 	}
 
+	/* Any tile that appears onscreen (or can potentially appear on screen) */
+	function Tile(x_rel, y_rel, container, type) {
+		this.container = container;
+		this.x_rel = x_rel; /* (Relative) coordinates of tile */
+		this.y_rel = y_rel;
+
+		Tile.prototype.get_top_left = function () {
+			return this.container.get_position();
+		};
+
+		/* Renders a tile to the screen. TYPE and TO are dictionaries.
+		 * TO should have keys context, x_rel, y_rel (where rel indicates a relative positions) */
+
+		/* This should be the only function that deals with absolute coordinates. */
+
+		/* TODO: Use get_dim in this function */
+		Tile.prototype.render = function (to) {
+			var top_left = this.get_top_left(),
+			    ctx = to.context;
+
+			ctx.fillStyle = "#00f";
+			ctx.strokeRect(top_left.x + this.x_rel * TILE_WIDTH, top_left.y + this.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
+
+			if (this.type === 0) {
+				ctx.fillStyle = "#0f0";
+			} else if (this.type === 1) {
+				ctx.fillStyle = "#f00";
+			}
+			ctx.fillRect(top_left.x + this.x_rel * TILE_WIDTH, top_left.y + this.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
+		}
+
+		Tile.prototype.get_dim = function () {
+			var top_left = this.get_top_left();
+
+			return { x : top_left.x + this.x_rel * TILE_WIDTH, y : top_left.y + this.y_rel * TILE_WIDTH, width : TILE_WIDTH, height : TILE_WIDTH };
+		}
+
+		Tile.prototype.contains = function (point) {
+			return point_inside_rect(point, this.get_dim());
+		}
+
+		if (!type) {
+			/* default type */
+			this.type = 0;
+		} else {
+			this.type = type;
+		}
+	}
+
 	/* Contains all tiles that you can draw on the main grid */
 	function Tilebox(context, width_in_tiles) {
 		var TILEBOX_HEIGHT = 5,  /* in tiles */
+				current_selection = 0, /* index into tiles[] */
+				tiles,
 				dim = { x : 0, y : 0, width : width_in_tiles * TILE_WIDTH, height : TILEBOX_HEIGHT * TILE_WIDTH };
 
 		this.get_dim = function () {
-			return { width : dim.width, height : dim.height };
+			return dim; 
 		};
+
+		/* Get the top left corner of the tile box */
+		this.get_position = function () {
+			return dim;
+		}
+
+		/* Returns a new object of the selected type */
+		this.selection_to_tile = function (x_rel, y_rel, tile_parent) {
+			return new Tile(x_rel, y_rel, tile_parent, current_selection);
+		}
 
 		this.set_position = function (position) {
 			dim.x = position.x;
@@ -151,29 +218,34 @@ $(function () {
 		};
 
 		this.draw = function () {
+			var i = 0;
+
+			for (i = 0; i < tiles.length; i++) {
+				tiles[i].render({ context : context });
+			}
+
 			context.strokeRect(dim.x, dim.y, dim.width, dim.height);
 		};
 
 		this.update = function (keys_state, mouse_state) {
-			//Do something meaningful.
+			var i = 0;
+
+			if (mouse_state.down) {
+				for (i = 0; i < tiles.length; i++) {
+					if (tiles[i].contains(mouse_state)){
+						current_selection = i;
+					}
+				}
+			}
 		};
 
-		function init() {
-
-		}
-
-		init();
+		tiles = [new Tile(0, 0, this, 0), new Tile(1, 0, this, 1)];
 	}
 
 	/* Manages the map data */
-	function Data(map_width, overworld_width) {
+	function Data(map_width, overworld_width, container) {
 		var data = {}, /* A 4D array: [overworld_x][overworld_y][map_x][map_y] */
 				current_map;
-
-		/* Makes a generic empty tile. */
-		function make_empty_tile() {
-			return {type: 0};
-		}
 
 		/* Returns the map currently being edited */
 		function get_current_map() {
@@ -204,8 +276,8 @@ $(function () {
 
 			/* Make a 4D array. This is O(scary)...but it seems fine. */
 			data = make_2d_array(overworld_width, function () {
-				return make_2d_array(map_width, function () {
-					return make_empty_tile();
+				return make_2d_array(map_width, function (i, j) {
+					return new Tile(i, j, container);
 				});
 			});
 		}
@@ -214,11 +286,12 @@ $(function () {
 	}
 
 	/* The editable area. */
-	function MainGrid(context, width_in_tiles) {
+	function MainGrid(context, width_in_tiles, tile_box) {
 		var states = { OVERWORLD : 0, SINGLE : 1 },
 				state = states.OVERWORLD,
 				data, /* all map data */
 				current_map = {},
+				tile_box = tile_box,
 				draw_loop,
 				dim = { x : 0, y : 0, w : width_in_tiles * TILE_WIDTH, h : width_in_tiles * TILE_WIDTH };
 
@@ -233,29 +306,15 @@ $(function () {
 			dim.y = position.y;
 		};
 
+		/* Get the top left corner of the tile box */
+		this.get_position = function () {
+			return { x : dim.x, y : dim.y };
+		}
+
 		/* Returns the dimension of the grid */
 		this.get_dim = function () {
 			return { width : dim.w, height : dim.h };
 		};
-
-
-		/* Renders a tile to the screen. TYPE and TO are dictionaries. TYPE should have keys {file, x_rel, y_rel}.
-		 * TO should have keys context, x_rel, y_rel (where rel indicates a relative positions) */
-
-		/* This should be the only function that deals with absolute coordinates. */
-		function render_tile(type, to) {
-			var ctx = to.context;
-
-			ctx.fillStyle = "#00f";
-			ctx.strokeRect(to.x_rel * TILE_WIDTH, to.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
-
-			if (type.type === 0) {
-				ctx.fillStyle = "#0f0";
-			} else if (type.type === 1) {
-				ctx.fillStyle = "#f00";
-			}
-			ctx.fillRect(to.x_rel * TILE_WIDTH, to.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
-		}
 
 		/* Draws the 'overworld' (all maps) */
 		function draw_overworld() {
@@ -269,7 +328,7 @@ $(function () {
 
 			for (i = 0; i < width_in_tiles; i += 1) {
 				for (j = 0; j < width_in_tiles; j += 1) {
-					render_tile(data.get_tile(i, j), {x_rel : i, y_rel : j, context : context });
+					data.get_tile(i, j).render({ context : context });
 				}
 			}
 		}
@@ -291,21 +350,32 @@ $(function () {
 
 		/* Takes states of input, and changes internal state if necessary. */
 		this.update = function (keys_state, mouse_state) {
-			var Z = 90, X = 88;
+			var i = 0, j = 0, 
+					Z = 90, X = 88; /* Keycodes */
 			
 			if (contains(keys_state, Z)) {
 				set_state(states.OVERWORLD);				
 			} else if (contains(keys_state, X)) {
 				set_state(states.SINGLE);
 			}
+
+			if (mouse_state.down) {
+				for (i = 0; i < width_in_tiles; i += 1) {
+					for (j = 0; j < width_in_tiles; j += 1) {
+						if (data.get_tile(i, j).contains(mouse_state)) {
+							data.set_tile(i, j, tile_box.selection_to_tile(i, j, this));
+						}
+					}
+				}
+			}
 		};
 
 		/* Initializes all data */
 		function init() {
-			data = new Data(MAP_WIDTH, OVERWORLD_WIDTH);
+			data = new Data(MAP_WIDTH, OVERWORLD_WIDTH, this);
 		}
 
-		init();
+		init.apply(this);
 	}
 
 	/* A key listener module. get_state returns an array of all keys that are currently pressed. */
@@ -375,13 +445,13 @@ $(function () {
 		mouse_listener = new MouseListener();
 
 		/* Objects */
-		main_grid = new MainGrid(context, MAP_WIDTH);
 		tile_box = new Tilebox(context, MAP_WIDTH);
+		main_grid = new MainGrid(context, MAP_WIDTH, tile_box);
 
 		positioner = new Positioner();
 
 		main_grid.set_position(positioner.add_object(extend_object(main_grid.get_dim(), {id : "main_grid"}), "", ""));
-		tile_box.set_position(positioner.add_object(extend_object(tile_box.get_dim(), {id : "toolbox"}), "main_grid", "right"));
+		tile_box.set_position(positioner.add_object(extend_object(tile_box.get_dim(), {id : "toolbox"}), "main_grid", "bottom"));
 
 		setInterval(main_loop, REFRESH_RATE);
 	}
