@@ -1,6 +1,15 @@
 /*jslint devel: true, browser: true, maxerr: 50, indent: 4 */
 /*global clearInterval: false, clearTimeout: false, document: false, event: false, frames: false, history: false, Image: false, location: false, name: false, navigator: false, Option: false, parent: false, screen: false, setInterval: false, setTimeout: false, window: false, XMLHttpRequest: false */
 
+/* TODO:
+ *
+ * Load in spritesheets.
+ * Output data as text.
+ * Maybe have a server running in the background.
+ *
+ */
+
+
 var $ = $; /* make jslint shut up about jQuery.*/
 
 $(function () {
@@ -124,19 +133,12 @@ $(function () {
 			} else {
 				if (relative === "right") {
 					new_object.x = parent_object.x + parent_object.width + BORDER_WIDTH;
-					new_object.y = parent_object.objs_on_right;
-
-					parent_object.objs_on_right += new_object.height + BORDER_WIDTH;
+					new_object.y = parent_object.y;
 				} else if (relative === "bottom") {
-					new_object.x = parent_object.objs_on_bottom;
+					new_object.x = parent_object.x;
 					new_object.y = parent_object.y + parent_object.height + BORDER_WIDTH;
-
-					parent_object.objs_on_bottom += new_object.width + BORDER_WIDTH;
 				}
 			}
-
-			new_object.objs_on_bottom = new_object.x;
-			new_object.objs_on_right = new_object.y;
 
 			objects_positioned[obj.id] = new_object;
 
@@ -530,8 +532,7 @@ $(function () {
 
 		main_grid.set_position(positioner.add_object(extend_object(main_grid.get_dim(), {id : "main_grid"}), "", ""));
 		tile_box.set_position(positioner.add_object(extend_object(tile_box.get_dim(), {id : "toolbox"}), "main_grid", "bottom"));
-		shortcut_label.set_position(positioner.add_object(extend_object(shortcut_label.get_dim(), {id : "shortcut_label"}), "main_grid", "bottom"));
-
+		shortcut_label.set_position(positioner.add_object(extend_object(shortcut_label.get_dim(), {id : "shortcut_label"}), "toolbox", "bottom"));
 
 		setInterval(main_loop, REFRESH_RATE);
 	}
