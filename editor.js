@@ -6,6 +6,7 @@ var $ = $; /* make jslint shut up about jQuery.*/
 $(function () {
 	var /* Constants */	
 			REFRESH_RATE = 10,
+		  states = { OVERWORLD : 0, SINGLE : 1 },
 			/* Currently constants, but won't be later */
 			TILE_WIDTH = 20,
 			MAP_WIDTH = 20,
@@ -15,7 +16,8 @@ $(function () {
 			mouse_listener,
 	    key_listener,
 			positioner,
-			tile_box;
+			tile_box,
+      shortcut_label;
 
 	/*********************
 	 * Utility functions *
@@ -127,7 +129,7 @@ $(function () {
 					parent_object.objs_on_right += new_object.height + BORDER_WIDTH;
 				} else if (relative === "bottom") {
 					new_object.x = parent_object.objs_on_bottom;
-					new_object.y = parent_object.x + parent_object.width + BORDER_WIDTH;
+					new_object.y = parent_object.y + parent_object.height + BORDER_WIDTH;
 
 					parent_object.objs_on_bottom += new_object.width + BORDER_WIDTH;
 				}
@@ -142,11 +144,36 @@ $(function () {
 		};
 	}
 
+  /* Any text on screen. */
+  function Label(context, contents) {
+    this.contents = contents;
+    this.context = context;
+
+    Label.prototype.draw = function () {
+      this.context.font = "bold 12px sans-serif";
+      this.context.fillText(contents, this.x, this.y);
+    };
+
+    Label.prototype.set_position = function (position) {
+      this.x = position.x;
+      this.y = position.y;
+    }
+
+    Label.prototype.get_dim = function () {
+      return {x : this.x,
+              y : this.y,
+              width : 500,
+              height : 50};
+    }
+
+  }
+
 	/* Any tile that appears onscreen (or can potentially appear on screen) */
 	function Tile(x_rel, y_rel, container, type) {
 		this.container = container;
 		this.x_rel = x_rel; /* (Relative) coordinates of tile */
 		this.y_rel = y_rel;
+    this.highlighted = false;
 
 		Tile.prototype.get_top_left = function () {
 			return this.container.get_position();
@@ -160,18 +187,31 @@ $(function () {
 		/* TODO: Use get_dim in this function */
 		Tile.prototype.render = function (to) {
 			var top_left = this.get_top_left(),
-			    ctx = to.context;
+			    ctx = to.context,
+					dim = this.get_dim();
 
-			ctx.fillStyle = "#00f";
-			ctx.strokeRect(top_left.x + this.x_rel * TILE_WIDTH, top_left.y + this.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
+      if (this.highlighted) {
+        ctx.fillStyle = "#aaf";
+      } else {
+        ctx.fillStyle = "#00f";
+      }
 
-			if (this.type === 0) {
+			ctx.strokeRect(dim.x, dim.y, dim.width, dim.height);
+
+			ctx.fillStyle = "#" + this.type.toString(16) + "00";
+			/* if (this.type === 0) {
 				ctx.fillStyle = "#0f0";
 			} else if (this.type === 1) {
 				ctx.fillStyle = "#f00";
-			}
+			}*/
+			ctx.fillRect(dim.x, dim.y, dim.width, dim.height);
 			ctx.fillRect(top_left.x + this.x_rel * TILE_WIDTH, top_left.y + this.y_rel * TILE_WIDTH, TILE_WIDTH, TILE_WIDTH);
 		}
+
+    /* Highlights (or unhighlights) the current tile if STATE. */
+    Tile.prototype.highlight = function (state) {
+      this.highlighted = state;
+    }
 
 		Tile.prototype.get_dim = function () {
 			var top_left = this.get_top_left();
@@ -195,7 +235,7 @@ $(function () {
 	function Tilebox(context, width_in_tiles) {
 		var TILEBOX_HEIGHT = 5,  /* in tiles */
 				current_selection = 0, /* index into tiles[] */
-				tiles,
+				tiles = [],
 				dim = { x : 0, y : 0, width : width_in_tiles * TILE_WIDTH, height : TILEBOX_HEIGHT * TILE_WIDTH };
 
 		this.get_dim = function () {
@@ -239,12 +279,22 @@ $(function () {
 			}
 		};
 
-		tiles = [new Tile(0, 0, this, 0), new Tile(1, 0, this, 1)];
+		function init() {
+			var i = 0;
+
+			for (i = 0; i < 16; i++) {
+				tiles.push(new Tile(i, 0, this, i));
+			}
+		}
+
+		init.apply(this);
+
 	}
 
 	/* Manages the map data */
 	function Data(map_width, overworld_width, container) {
 		var data = {}, /* A 4D array: [overworld_x][overworld_y][map_x][map_y] */
+        overworld_tiles = {},
 				current_map;
 
 		/* Returns the map currently being edited */
@@ -258,10 +308,36 @@ $(function () {
 			cur_map[x][y] = content;
 		};
 
-		this.get_tile = function (x, y) {
-			var cur_map = get_current_map();
-			return cur_map[x][y];
+    /* Gets the tile at position (x, y). state is the current state of the map. */
+		this.get_tile = function (x, y, state) {
+			var cur_map;
+
+      if (state === states.OVERWORLD) {
+        /* TODO: Do something fancy */
+        cur_map = overworld_tiles;
+      } else {
+        cur_map = get_current_map();
+      }
+
+      return cur_map[x][y];
 		};
+
+    /* Calls fn with every tile in succession as an argument. */
+    this.for_each_tile = function(state, fn) {
+      var i = 0, j = 0, width = 0;
+
+      if (state === states.OVERWORLD) {
+        width = overworld_width;
+      } else {
+        width = map_width;
+      }
+
+      for (i = 0; i < width; i += 1) {
+        for (j = 0; j < width; j += 1) {
+          fn(this.get_tile(i, j, state));
+        }
+      }
+    }
 
 		/* Change which map we're editing */
 		this.set_current_map = function (x, y) {
@@ -280,6 +356,11 @@ $(function () {
 					return new Tile(i, j, container);
 				});
 			});
+
+      overworld_tiles = make_2d_array(overworld_width, 
+        function (i, j) {
+          return new Tile(i, j, container, "888888");
+        });
 		}
 
 		init.apply(this); /* Bind this to the more natural value */
@@ -287,9 +368,10 @@ $(function () {
 
 	/* The editable area. */
 	function MainGrid(context, width_in_tiles, tile_box) {
-		var states = { OVERWORLD : 0, SINGLE : 1 },
+    var
 				state = states.OVERWORLD,
 				data, /* all map data */
+        overworld_data, /* all overworld data */
 				current_map = {},
 				tile_box = tile_box,
 				draw_loop,
@@ -316,36 +398,16 @@ $(function () {
 			return { width : dim.w, height : dim.h };
 		};
 
-		/* Draws the 'overworld' (all maps) */
-		function draw_overworld() {
-			context.strokeRect(dim.x, dim.y, dim.w, dim.h);
-		}
-
-		/* Draws an individual map. */
-		function draw_single() {
-			var i = 0, j = 0;
-			context.strokeRect(dim.x, dim.y, dim.w, dim.h);
-
-			for (i = 0; i < width_in_tiles; i += 1) {
-				for (j = 0; j < width_in_tiles; j += 1) {
-					data.get_tile(i, j).render({ context : context });
-				}
-			}
-		}
-
 		/* Generic drawing function */
 		this.draw = function () {
-			/* Expand the canvas to take up the whole window. */
-			context.canvas.width  = window.innerWidth;
-			context.canvas.height = window.innerHeight;
-
+      var i = 0, j = 0;
 			context.clearRect(0, 0, context.canvas.width, context.canvas.height);
 
-			if (state === states.OVERWORLD) {
-				draw_overworld();
-			} else if (state === states.SINGLE) {
-				draw_single(current_map);
-			}
+			context.strokeRect(dim.x, dim.y, dim.w, dim.h);
+
+      data.for_each_tile(state, function (tile) {
+        tile.render({ context : context });
+      });
 		};
 
 		/* Takes states of input, and changes internal state if necessary. */
@@ -360,14 +422,21 @@ $(function () {
 			}
 
 			if (mouse_state.down) {
-				for (i = 0; i < width_in_tiles; i += 1) {
-					for (j = 0; j < width_in_tiles; j += 1) {
-						if (data.get_tile(i, j).contains(mouse_state)) {
-							data.set_tile(i, j, tile_box.selection_to_tile(i, j, this));
-						}
-					}
-				}
-			}
+        if (state === states.SINGLE) { 
+          /* TODO: use for_each_tile */
+          for (i = 0; i < width_in_tiles; i += 1) {
+            for (j = 0; j < width_in_tiles; j += 1) {
+              if (data.get_tile(i, j).contains(mouse_state)) {
+                data.set_tile(i, j, tile_box.selection_to_tile(i, j, this));
+              }
+            }
+          }
+        } else if (state === states.OVERWORLD) {
+          data.for_each_tile(state, function (tile) {
+            tile.highlight(tile.contains(mouse_state));
+          }); 
+        }
+      }
 		};
 
 		/* Initializes all data */
@@ -435,10 +504,16 @@ $(function () {
 
 		tile_box.update(keys_state, mouse_state);
 		tile_box.draw();
+
+    shortcut_label.draw();
 	}
 
 	function init() {
 		var context = document.getElementById("main").getContext("2d");
+
+		/* Expand the canvas to take up the whole window. */
+		context.canvas.width  = window.innerWidth;
+		context.canvas.height = window.innerHeight;
 
 		/* Listeners */
 		key_listener = new KeyListener();
@@ -448,10 +523,15 @@ $(function () {
 		tile_box = new Tilebox(context, MAP_WIDTH);
 		main_grid = new MainGrid(context, MAP_WIDTH, tile_box);
 
+    /* Other */
+    shortcut_label = new Label(context, "Z for overworld. X for single view");
+
 		positioner = new Positioner();
 
 		main_grid.set_position(positioner.add_object(extend_object(main_grid.get_dim(), {id : "main_grid"}), "", ""));
 		tile_box.set_position(positioner.add_object(extend_object(tile_box.get_dim(), {id : "toolbox"}), "main_grid", "bottom"));
+		shortcut_label.set_position(positioner.add_object(extend_object(shortcut_label.get_dim(), {id : "shortcut_label"}), "main_grid", "bottom"));
+
 
 		setInterval(main_loop, REFRESH_RATE);
 	}
