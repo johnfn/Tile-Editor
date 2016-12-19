@@ -53,10 +53,13 @@ $(function () {
 
 	/* apply FN to every element of ARRAY, returning a new array. */
 	function map_2d(array, fn) {
-		var i = 0, j = 0, new_array = array;
+		var i = 0, j = 0, new_array = array, len = array.length;
+		if (len === 0) {
+			return [];
+		}
 
-		for (i = 0; i < array.length; i += 1) {
-			for (j = 0; j < array.length; j += 1) {
+		for (i = 0; i < len; i += 1) {
+			for (j = 0; j < len; j += 1) {
 				new_array = fn(array[i][j]);
 			}
 		}
@@ -66,9 +69,9 @@ $(function () {
 
 	/* Standard functional map function */
 	function map(array, fn) {
-		var result, i = 0;
+		var result = [], i = 0, len = array.length;
 
-		for (i = 0; i < array.length; i += 1) {
+		for (i = 0; i < len; i += 1) {
 			result[i] = fn(array[i]);
 		}
 	}
